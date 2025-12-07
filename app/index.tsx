@@ -1,11 +1,18 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useEffect } from "react";
-import { StatusBar, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { router } from 'expo-router';
+import { useEffect, useState } from "react";
+import { Alert, StatusBar, Text, TextInput, TouchableOpacity, View } from "react-native";
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
 import "../global.css";
+import { supabase } from '../lib/supabase';
 
 export default function App() {
+  const [identifier, setIdentifier] = useState(''); // Can be username, email, or phone
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [loading, setLoading] = useState(false);
+
   const opacity = useSharedValue(0);
   const translateY = useSharedValue(50);
   const scale = useSharedValue(0.9);
@@ -23,6 +30,59 @@ export default function App() {
       { scale: scale.value }
     ],
   }));
+
+  const handleSignIn = async () => {
+    if (!identifier || !password) {
+      Alert.alert('Error', 'Please enter your credentials');
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      // Check if identifier is email (contains @)
+      const isEmail = identifier.includes('@');
+
+      if (isEmail) {
+        // Direct email login
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email: identifier,
+          password,
+        });
+
+        if (error) throw error;
+
+        // Navigate to dashboard
+        router.replace('/dashboard');
+      } else {
+        // Username or phone number - need to query users table first
+        const { data: userData, error: queryError } = await supabase
+          .from('users')
+          .select('email')
+          .or(`username.eq.${identifier},phone_number.eq.${identifier}`)
+          .single();
+
+        if (queryError || !userData) {
+          throw new Error('User not found');
+        }
+
+        // Now login with the email
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email: userData.email,
+          password,
+        });
+
+        if (error) throw error;
+
+        // Navigate to dashboard
+        router.replace('/dashboard');
+      }
+    } catch (error: any) {
+      Alert.alert('Login Error', error.message || 'Invalid credentials');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <LinearGradient
@@ -58,23 +118,24 @@ export default function App() {
           <Text className="text-white/70 text-sm">Sign in to continue your journey</Text>
         </View>
 
-        {/* Email Input with Glassmorphism */}
+        {/* Username/Email/Phone Input */}
         <View className="mb-2">
           <View className="bg-white/20 backdrop-blur-xl rounded-2xl border border-white/30 overflow-hidden">
             <View className="flex-row items-center px-5 py-4">
-              <Ionicons name="mail-outline" size={22} color="white" style={{ marginRight: 12 }} />
+              <Ionicons name="person-outline" size={22} color="white" style={{ marginRight: 12 }} />
               <TextInput
-                placeholder="Email address"
+                placeholder="Username, Email or Phone"
                 placeholderTextColor="rgba(255,255,255,0.6)"
                 className="flex-1 text-white text-base"
-                keyboardType="email-address"
+                value={identifier}
+                onChangeText={setIdentifier}
                 autoCapitalize="none"
               />
             </View>
           </View>
         </View>
 
-        {/* Password Input with Glassmorphism */}
+        {/* Password Input */}
         <View className="mb-2">
           <View className="bg-white/20 backdrop-blur-xl rounded-2xl border border-white/30 overflow-hidden">
             <View className="flex-row items-center px-5 py-4">
@@ -83,10 +144,12 @@ export default function App() {
                 placeholder="Password"
                 placeholderTextColor="rgba(255,255,255,0.6)"
                 className="flex-1 text-white text-base"
-                secureTextEntry
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry={!showPassword}
               />
-              <TouchableOpacity>
-                <Ionicons name="eye-outline" size={22} color="rgba(255,255,255,0.7)" />
+              <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
+                <Ionicons name={showPassword ? "eye-outline" : "eye-off-outline"} size={22} color="rgba(255,255,255,0.7)" />
               </TouchableOpacity>
             </View>
           </View>
@@ -97,8 +160,12 @@ export default function App() {
           <Text className="text-white font-semibold text-sm">Forgot Password?</Text>
         </TouchableOpacity>
 
-        {/* Sign In Button with Gradient */}
-        <TouchableOpacity className="mb-3 rounded-2xl overflow-hidden shadow-2xl">
+        {/* Sign In Button */}
+        <TouchableOpacity
+          className="mb-3 rounded-2xl overflow-hidden shadow-2xl"
+          onPress={handleSignIn}
+          disabled={loading}
+        >
           <LinearGradient
             colors={['#ffffff', '#f0f0f0']}
             start={{ x: 0, y: 0 }}
@@ -106,7 +173,7 @@ export default function App() {
             className="py-5"
           >
             <Text className="text-purple-700 text-center text-lg font-bold tracking-wide">
-              Sign In
+              {loading ? 'Signing In...' : 'Sign In'}
             </Text>
           </LinearGradient>
         </TouchableOpacity>
@@ -134,7 +201,7 @@ export default function App() {
         {/* Sign Up Link */}
         <View className="flex-row justify-center items-center">
           <Text className="text-white/70 text-sm">Don't have an account? </Text>
-          <TouchableOpacity>
+          <TouchableOpacity onPress={() => router.push('/signup')}>
             <Text className="text-white font-bold text-sm">Sign Up</Text>
           </TouchableOpacity>
         </View>
